@@ -1,5 +1,5 @@
 import os
-from src.app import app, create_tables  # Import your Flask app and table setup
+from src.app import app, create_tables
 
 if __name__ == "__main__":
     create_tables()  # Ensure database tables exist
