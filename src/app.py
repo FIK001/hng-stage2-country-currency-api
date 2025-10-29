@@ -130,3 +130,10 @@ def home():
             "status": "/status"
         }
     })
+
+# -----------------------------
+# Helper function to create tables
+# -----------------------------
+def create_tables():
+    from src.db_connection import initialize_db
+    initialize_db()
