@@ -1,6 +1,5 @@
 import os
-from src.app import app
-from src.db_connection import create_tables  # ✅ now correct
+from src.app import app, create_tables
 
 if __name__ == "__main__":
     create_tables()  # Ensure database tables exist
