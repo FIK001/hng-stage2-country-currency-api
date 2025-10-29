@@ -1,4 +1,5 @@
-from flask import Flask, jsonify, request
+import os
+from flask import Flask, jsonify, request, send_file
 from flasgger import Swagger
 from src.db_connection import get_connection
 from src.fetch_countries import (
@@ -6,9 +7,13 @@ from src.fetch_countries import (
     get_country_by_name,
     delete_country_by_name,
     get_status,
-    fetch_and_store_countries  # replaces refresh_countries
+    fetch_and_store_countries  # replaces old refresh_countries
 )
+from src.image_generator import generate_summary_image  # optional
 
+# -----------------------------
+# APP INITIALIZATION
+# -----------------------------
 app = Flask(__name__)
 
 # -----------------------------
@@ -40,7 +45,7 @@ swagger_template = {
 swagger = Swagger(app, config=swagger_config, template=swagger_template)
 
 # -----------------------------
-# Root Route
+# ROOT ROUTE
 # -----------------------------
 @app.route("/", methods=["GET"])
 def home():
@@ -51,12 +56,13 @@ def home():
             "/countries": "Get all countries (with optional filters)",
             "/countries/<name>": "Get or delete a specific country",
             "/refresh": "Fetch and refresh countries from external APIs",
-            "/status": "Check database and refresh status"
+            "/status": "Check database and refresh status",
+            "/countries/image": "Get summary image of countries (optional)"
         }
     }), 200
 
 # -----------------------------
-# Get All Countries
+# GET ALL COUNTRIES
 # -----------------------------
 @app.route("/countries", methods=["GET"])
 def list_countries():
@@ -67,50 +73,49 @@ def list_countries():
     return jsonify(data), 200
 
 # -----------------------------
-# Get Country by Name
+# GET / DELETE COUNTRY BY NAME
 # -----------------------------
-@app.route("/countries/<name>", methods=["GET"])
-def get_country(name):
-    country = get_country_by_name(name)
-    if country:
-        return jsonify(country), 200
-    return jsonify({"error": "Country not found"}), 404
+@app.route("/countries/<name>", methods=["GET", "DELETE"])
+def country_by_name(name):
+    if request.method == "GET":
+        country = get_country_by_name(name)
+        if country:
+            return jsonify(country), 200
+        return jsonify({"error": "Country not found"}), 404
+    else:  # DELETE
+        deleted = delete_country_by_name(name)
+        if deleted:
+            return jsonify({"message": f"{name} deleted successfully!"}), 200
+        return jsonify({"error": "Country not found or already deleted"}), 404
 
 # -----------------------------
-# Delete Country by Name
+# REFRESH COUNTRIES
 # -----------------------------
-@app.route("/countries/<name>", methods=["DELETE"])
-def delete_country(name):
-    deleted = delete_country_by_name(name)
-    if deleted:
-        return jsonify({"message": f"{name} deleted successfully!"}), 200
-    return jsonify({"error": "Country not found or already deleted"}), 404
-
-# -----------------------------
-# Refresh Countries
-# -----------------------------
-@app.route("/refresh", methods=["POST"])
+@app.route("/countries/refresh", methods=["POST"])
 def refresh_data():
     try:
         fetch_and_store_countries()
+        try:
+            generate_summary_image()
+        except Exception:
+            print("⚠️ Summary image generation skipped or failed.")
         return jsonify({"message": "Countries refreshed successfully!"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 # -----------------------------
-# Status
+# SUMMARY IMAGE ENDPOINT
+# -----------------------------
+@app.route("/countries/image", methods=["GET"])
+def country_image():
+    image_path = "cache/summary.png"
+    if not os.path.exists(image_path):
+        return jsonify({"error": "Summary image not found"}), 404
+    return send_file(image_path, mimetype="image/png")
+
+# -----------------------------
+# STATUS ENDPOINT
 # -----------------------------
 @app.route("/status", methods=["GET"])
 def status():
-    info = get_status()
-    return jsonify(info), 200
-
-# -----------------------------
-# Run Server
-# -----------------------------
-import os
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    # Disable debug in production on Replit
-    app.run(host="0.0.0.0", port=port, debug=False)
+    return jsonify(get_status()), 200
