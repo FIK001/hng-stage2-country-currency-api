@@ -1,12 +1,11 @@
+from app import app
+from src.db_connection import initialize_db
+from pyngrok import ngrok
 import os
-from src.app import app, create_tables
 
-if __name__ == "__main__":
-    # Ensure database tables exist before starting the app
-    create_tables()
-    
-    # Get the port from environment variables (useful for PythonAnywhere or other hosts)
-    port = int(os.environ.get("PORT", 5000))
-    
-    # Run the Flask app
-    app.run(host="0.0.0.0", port=port, debug=True)
+initialize_db()
+port = int(os.environ.get("PORT", 5000))
+public_url = ngrok.connect(port)
+print(f"Ngrok URL: {public_url}/docs/")
+
+app.run(host="0.0.0.0", port=port, debug=False)
