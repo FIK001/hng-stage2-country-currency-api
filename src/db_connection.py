@@ -6,10 +6,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def get_connection():
-    """
-    Establish and return a MySQL database connection.
-    Returns None if connection fails.
-    """
     try:
         conn = mysql.connector.connect(
             host=os.getenv("DB_HOST", "localhost"),
@@ -18,8 +14,36 @@ def get_connection():
             database=os.getenv("DB_NAME", "countries_db"),
             raise_on_warnings=True
         )
-        conn.autocommit = True  # Automatically commit transactions
+        conn.autocommit = True
         return conn
     except mysql.connector.Error as e:
         print(f"Database connection error: {e}")
         return None
+
+
+def create_tables():
+    """
+    Create the 'countries' table if it does not exist
+    """
+    conn = get_connection()
+    if not conn:
+        print("❌ Cannot create tables because database connection failed.")
+        return
+
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS countries (
+            name VARCHAR(100) PRIMARY KEY,
+            capital VARCHAR(100),
+            region VARCHAR(50),
+            population BIGINT,
+            currency_code VARCHAR(10),
+            exchange_rate FLOAT,
+            estimated_gdp FLOAT,
+            flag_url VARCHAR(255),
+            last_refreshed_at DATETIME
+        )
+    """)
+    cursor.close()
+    conn.close()
+    print("✅ Database tables ensured.")
