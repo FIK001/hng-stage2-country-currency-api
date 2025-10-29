@@ -60,20 +60,24 @@ class AllCountries(Resource):
         sort = request.args.get("sort")
         return get_countries(region=region, currency=currency, sort=sort)
 
+
 @ns.route("/<string:name>")
 class CountryByName(Resource):
     @ns.marshal_with(country_model)
     def get(self, name):
+        """Retrieve a single country by name"""
         country = get_country_by_name(name)
         if not country:
             return {"error": "Country not found"}, 404
         return country
 
     def delete(self, name):
+        """Delete a country by name"""
         success = delete_country_by_name(name)
         if not success:
             return {"error": "Country not found"}, 404
         return {"message": f"{name} deleted successfully"}, 200
+
 
 @ns.route("/refresh")
 class RefreshCountries(Resource):
@@ -81,6 +85,7 @@ class RefreshCountries(Resource):
         """Fetch and refresh all country + exchange rate data"""
         try:
             fetch_and_store_countries()
+            # Optional: generate summary image
             try:
                 generate_summary_image()
             except Exception:
@@ -88,6 +93,7 @@ class RefreshCountries(Resource):
             return {"message": "Countries refreshed successfully"}, 200
         except Exception as e:
             return {"error": "Internal server error", "details": str(e)}, 500
+
 
 @ns.route("/image")
 class CountryImage(Resource):
@@ -98,18 +104,22 @@ class CountryImage(Resource):
             return {"error": "Summary image not found"}, 404
         return send_file(image_path, mimetype="image/png")
 
+
 # -----------------------------
 # STATUS ENDPOINT
 # -----------------------------
 @app.route("/status")
 def status():
+    """System health check and database summary"""
     return jsonify(get_status())
+
 
 # -----------------------------
 # ROOT ENDPOINT
 # -----------------------------
 @app.route("/")
 def home():
+    """Welcome message"""
     return jsonify({
         "message": "Welcome to the Countries API!",
         "docs": "/docs",
@@ -120,10 +130,3 @@ def home():
             "status": "/status"
         }
     })
-
-# -----------------------------
-# Helper function to create tables
-# -----------------------------
-def create_tables():
-    from src.db_connection import initialize_db
-    initialize_db()
