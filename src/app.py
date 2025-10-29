@@ -1,121 +1,129 @@
 import os
 from flask import Flask, jsonify, request, send_file
-from flasgger import Swagger
+from flask_restx import Api, Resource, fields
+from dotenv import load_dotenv
 from src.db_connection import get_connection
 from src.fetch_countries import (
+    fetch_and_store_countries,
     get_countries,
     get_country_by_name,
     delete_country_by_name,
-    get_status,
-    fetch_and_store_countries  # replaces old refresh_countries
+    get_status
 )
 from src.image_generator import generate_summary_image  # optional
+
+# Load environment variables
+load_dotenv()
 
 # -----------------------------
 # APP INITIALIZATION
 # -----------------------------
 app = Flask(__name__)
+api = Api(
+    app,
+    version="1.0",
+    title="Countries API",
+    description="RESTful API for fetching, refreshing, and managing countries data.",
+    doc="/docs"
+)
 
 # -----------------------------
-# Swagger Configuration
+# API NAMESPACE
 # -----------------------------
-swagger_config = {
-    "headers": [],
-    "specs": [
-        {
-            "endpoint": "apispec",
-            "route": "/apispec.json",
-            "rule_filter": lambda rule: True,
-            "model_filter": lambda tag: True,
-        }
-    ],
-    "static_url_path": "/flasgger_static",
-    "swagger_ui": True,
-    "specs_route": "/docs/"
-}
-
-swagger_template = {
-    "info": {
-        "title": "🌍 Countries API",
-        "description": "API for managing and querying country data fetched from RESTCountries and exchange rate APIs.",
-        "version": "1.0",
-    }
-}
-
-swagger = Swagger(app, config=swagger_config, template=swagger_template)
+ns = api.namespace("countries", description="Country operations")
 
 # -----------------------------
-# ROOT ROUTE
+# MODEL SCHEMA (Swagger docs)
 # -----------------------------
-@app.route("/", methods=["GET"])
-def home():
-    return jsonify({
-        "message": "🌍 Countries API is running successfully!",
-        "docs": "Visit /docs for Swagger UI",
-        "endpoints": {
-            "/countries": "Get all countries (with optional filters)",
-            "/countries/<name>": "Get or delete a specific country",
-            "/refresh": "Fetch and refresh countries from external APIs",
-            "/status": "Check database and refresh status",
-            "/countries/image": "Get summary image of countries (optional)"
-        }
-    }), 200
+country_model = api.model("Country", {
+    "name": fields.String(required=True, description="Country name"),
+    "capital": fields.String(description="Capital city"),
+    "region": fields.String(description="Region"),
+    "population": fields.Integer(description="Population"),
+    "currency_code": fields.String(description="Currency code"),
+    "exchange_rate": fields.Float(description="Exchange rate (relative to USD)"),
+    "estimated_gdp": fields.Float(description="Estimated GDP"),
+    "flag_url": fields.String(description="Flag image URL"),
+    "last_refreshed_at": fields.String(description="Timestamp of last refresh")
+})
 
 # -----------------------------
-# GET ALL COUNTRIES
+# ROUTES
 # -----------------------------
-@app.route("/countries", methods=["GET"])
-def list_countries():
-    region = request.args.get("region")
-    currency = request.args.get("currency")
-    sort = request.args.get("sort")
-    data = get_countries(region, currency, sort)
-    return jsonify(data), 200
+@ns.route("/")
+class AllCountries(Resource):
+    @ns.marshal_list_with(country_model)
+    def get(self):
+        """Retrieve all countries (supports filtering and sorting)"""
+        region = request.args.get("region")
+        currency = request.args.get("currency")
+        sort = request.args.get("sort")
+        return get_countries(region=region, currency=currency, sort=sort)
 
-# -----------------------------
-# GET / DELETE COUNTRY BY NAME
-# -----------------------------
-@app.route("/countries/<name>", methods=["GET", "DELETE"])
-def country_by_name(name):
-    if request.method == "GET":
+@ns.route("/<string:name>")
+class CountryByName(Resource):
+    @ns.marshal_with(country_model)
+    def get(self, name):
         country = get_country_by_name(name)
-        if country:
-            return jsonify(country), 200
-        return jsonify({"error": "Country not found"}), 404
-    else:  # DELETE
-        deleted = delete_country_by_name(name)
-        if deleted:
-            return jsonify({"message": f"{name} deleted successfully!"}), 200
-        return jsonify({"error": "Country not found or already deleted"}), 404
+        if not country:
+            return {"error": "Country not found"}, 404
+        return country
 
-# -----------------------------
-# REFRESH COUNTRIES
-# -----------------------------
-@app.route("/countries/refresh", methods=["POST"])
-def refresh_data():
-    try:
-        fetch_and_store_countries()
+    def delete(self, name):
+        success = delete_country_by_name(name)
+        if not success:
+            return {"error": "Country not found"}, 404
+        return {"message": f"{name} deleted successfully"}, 200
+
+@ns.route("/refresh")
+class RefreshCountries(Resource):
+    def post(self):
+        """Fetch and refresh all country + exchange rate data"""
         try:
-            generate_summary_image()
-        except Exception:
-            print("⚠️ Summary image generation skipped or failed.")
-        return jsonify({"message": "Countries refreshed successfully!"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+            fetch_and_store_countries()
+            try:
+                generate_summary_image()
+            except Exception:
+                print("⚠️ Summary image generation skipped or failed.")
+            return {"message": "Countries refreshed successfully"}, 200
+        except Exception as e:
+            return {"error": "Internal server error", "details": str(e)}, 500
 
-# -----------------------------
-# SUMMARY IMAGE ENDPOINT
-# -----------------------------
-@app.route("/countries/image", methods=["GET"])
-def country_image():
-    image_path = "cache/summary.png"
-    if not os.path.exists(image_path):
-        return jsonify({"error": "Summary image not found"}), 404
-    return send_file(image_path, mimetype="image/png")
+@ns.route("/image")
+class CountryImage(Resource):
+    def get(self):
+        """Serve the summary image"""
+        image_path = "cache/summary.png"
+        if not os.path.exists(image_path):
+            return {"error": "Summary image not found"}, 404
+        return send_file(image_path, mimetype="image/png")
 
 # -----------------------------
 # STATUS ENDPOINT
 # -----------------------------
-@app.route("/status", methods=["GET"])
+@app.route("/status")
 def status():
-    return jsonify(get_status()), 200
+    return jsonify(get_status())
+
+# -----------------------------
+# ROOT ENDPOINT
+# -----------------------------
+@app.route("/")
+def home():
+    return jsonify({
+        "message": "Welcome to the Countries API!",
+        "docs": "/docs",
+        "example_endpoints": {
+            "all_countries": "/countries/",
+            "country_by_name": "/countries/Nigeria",
+            "refresh_data": "/countries/refresh",
+            "status": "/status"
+        }
+    })
+
+# -----------------------------
+# Helper function to create tables
+# -----------------------------
+def create_tables():
+    from src.db_connection import initialize_db
+    initialize_db()
